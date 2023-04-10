@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Soenneker.ServiceBus.Receptor.Abstract;
 
 /// <summary>
-/// A utility library for receiving Azure Service Bus messages <para/>
+/// An abstract Service Bus class meant to be derived by specific bus receptors. <para/>
 /// Be sure to warm implementations of these <para/>
 /// Singleton IoC
 /// </summary>

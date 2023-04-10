@@ -8,7 +8,7 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <Description>A utility library for receiving Azure Service Bus messages</Description>
+        <Description>An abstract Service Bus class meant to be derived by specific bus receptors</Description>
         <Version Condition="'$(BUILD_VERSION)' == ''">1.0.0</Version>
         <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
         <AssemblyName>Soenneker.ServiceBus.Receptor</AssemblyName>
@@ -31,18 +31,15 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>icon.png</PackageIcon>
     </PropertyGroup>
-    
+
     <ItemGroup>
         <None Include="..\README.md" Pack="true" PackagePath="\" />
         <None Include="..\LICENSE" Pack="true" PackagePath="\" />
         <None Include="..\icon.png" Pack="true" PackagePath="\" />
 
         <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1" PrivateAssets="All" />
-
         <PackageReference Include="Soenneker.Enums.ServiceBusQueue" Version="1.0.2" />
-
         <PackageReference Include="Soenneker.Extensions.String" Version="1.0.16" />
-
         <PackageReference Include="Soenneker.ServiceBus.Queue" Version="1.0.2" />
     </ItemGroup>
 </Project>
