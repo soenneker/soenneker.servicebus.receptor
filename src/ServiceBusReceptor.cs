@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Soenneker.Enums.ServiceBusQueue;
 using Soenneker.Extensions.String;
 using Soenneker.ServiceBus.Client.Abstract;
 using Soenneker.ServiceBus.Queue.Abstract;
@@ -15,7 +14,7 @@ namespace Soenneker.ServiceBus.Receptor;
 public abstract class ServiceBusReceptor : IServiceBusReceptor
 {
     protected ILogger<ServiceBusReceptor> Logger { get; }
-    protected ServiceBusQueue? Queue { get; }
+    protected string Queue { get; }
     protected IConfiguration Config { get; }
 
     private ServiceBusProcessor? _processor;
@@ -23,7 +22,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     private readonly IServiceBusClientUtil _serviceBusClientUtil;
     private readonly IServiceBusQueueUtil _serviceBusQueueUtil;
 
-    protected ServiceBusReceptor(ServiceBusQueue queue, ILogger<ServiceBusReceptor> logger, IServiceBusClientUtil serviceBusClientUtil, IServiceBusQueueUtil serviceBusQueueUtil, IConfiguration config)
+    protected ServiceBusReceptor(string queue, ILogger<ServiceBusReceptor> logger, IServiceBusClientUtil serviceBusClientUtil, IServiceBusQueueUtil serviceBusQueueUtil, IConfiguration config)
     {
         Logger = logger;
         Queue = queue;
@@ -36,13 +35,13 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     public async Task Init()
     {
-        await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue!.Name);
+        await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue);
 
         ServiceBusClient client = await _serviceBusClientUtil.GetClient();
 
         var options = new ServiceBusProcessorOptions {MaxConcurrentCalls = 1, AutoCompleteMessages = false};
 
-        _processor = client.CreateProcessor(Queue!.Name, options);
+        _processor = client.CreateProcessor(Queue, options);
 
         _processor.ProcessMessageAsync += MessageHandler;
         _processor.ProcessErrorAsync += ErrorHandler;
