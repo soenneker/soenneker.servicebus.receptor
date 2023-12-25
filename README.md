@@ -8,5 +8,5 @@
 ## Installation
 
 ```
-Install-Package Soenneker.ServiceBus.Receptor
+dotnet add package Soenneker.ServiceBus.Receptor
 ```
