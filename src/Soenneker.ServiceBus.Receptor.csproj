@@ -39,6 +39,6 @@
 
         
         <PackageReference Include="Soenneker.Extensions.String" Version="2.1.171" />
-        <PackageReference Include="Soenneker.ServiceBus.Queue" Version="2.1.725" />
+        <PackageReference Include="Soenneker.ServiceBus.Queue" Version="2.1.729" />
     </ItemGroup>
 </Project>
