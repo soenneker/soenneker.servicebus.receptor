@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Soenneker.ServiceBus.Receptor.Abstract;
@@ -13,7 +14,7 @@ public interface IServiceBusReceptor : IDisposable, IAsyncDisposable
     /// <summary>
     /// Must remain task
     /// </summary>
-    Task Init();
+    Task Init(CancellationToken cancellationToken = default);
 
     ValueTask OnMessageReceived(string messageContent, Type? type);
 }

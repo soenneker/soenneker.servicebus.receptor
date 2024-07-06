@@ -1,9 +1,12 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Soenneker.Extensions.String;
+using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.ServiceBus.Client.Abstract;
 using Soenneker.ServiceBus.Queue.Abstract;
 using Soenneker.ServiceBus.Receptor.Abstract;
@@ -14,7 +17,9 @@ namespace Soenneker.ServiceBus.Receptor;
 public abstract class ServiceBusReceptor : IServiceBusReceptor
 {
     protected ILogger<ServiceBusReceptor> Logger { get; }
+
     protected string Queue { get; }
+
     protected IConfiguration Config { get; }
 
     private ServiceBusProcessor? _processor;
@@ -33,26 +38,26 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
         _log = config.GetValue<bool>("Azure:ServiceBus:Log");
     }
 
-    public async Task Init()
+    public async Task Init(CancellationToken cancellationToken = default)
     {
-        await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue);
+        await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue, cancellationToken).NoSync();
 
-        ServiceBusClient client = await _serviceBusClientUtil.GetClient();
+        ServiceBusClient client = await _serviceBusClientUtil.Get(cancellationToken).NoSync();
 
         var options = new ServiceBusProcessorOptions {MaxConcurrentCalls = 1, AutoCompleteMessages = false};
 
         _processor = client.CreateProcessor(Queue, options);
 
-        _processor.ProcessMessageAsync += MessageHandler;
+        _processor.ProcessMessageAsync += args => MessageHandler(args, cancellationToken);
         _processor.ProcessErrorAsync += ErrorHandler;
 
-        await _processor.StartProcessingAsync();
+        await _processor.StartProcessingAsync(cancellationToken).NoSync();
     }
 
     /// <summary>
     /// Must remain Task for handler hook
     /// </summary>
-    private async Task MessageHandler(ProcessMessageEventArgs args)
+    private async Task MessageHandler(ProcessMessageEventArgs args, CancellationToken cancellationToken = default)
     {
         var messageStr = args.Message.Body.ToString();
 
@@ -79,10 +84,10 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
         PreOnMessageReceived(messageStr, runtimeType);
 
-        await OnMessageReceived(messageStr, runtimeType);
+        await OnMessageReceived(messageStr, runtimeType).NoSync();
 
         // complete the message. messages are deleted from the queue. 
-        await args.CompleteMessageAsync(args.Message);
+        await args.CompleteMessageAsync(args.Message, cancellationToken).NoSync();
     }
 
     private Task ErrorHandler(ProcessErrorEventArgs args)
@@ -111,7 +116,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     public void Dispose()
     {
         GC.SuppressFinalize(this);
-
-        _processor?.DisposeAsync().GetAwaiter().GetResult();
+        
+        _processor?.DisposeAsync().NoSync().GetAwaiter().GetResult();
     }
 }
