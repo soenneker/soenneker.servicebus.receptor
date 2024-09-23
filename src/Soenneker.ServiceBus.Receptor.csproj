@@ -38,7 +38,7 @@
         <None Include="..\icon.png" Pack="true" PackagePath="\" />
 
         
-        <PackageReference Include="Soenneker.Extensions.String" Version="2.1.237" />
+        <PackageReference Include="Soenneker.Extensions.String" Version="2.1.241" />
         <PackageReference Include="Soenneker.ServiceBus.Queue" Version="2.1.1036" />
     </ItemGroup>
 </Project>
