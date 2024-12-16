@@ -74,7 +74,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
             if (type is string value)
             {
                 if (value.IsNullOrEmpty())
-                    Logger.LogError("Service bus message was not properly formed");
+                    Logger.LogError("ServiceBus message was not properly formed");
                 else
                     runtimeType = Type.GetType(value);
             }
@@ -107,16 +107,39 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     {
         GC.SuppressFinalize(this);
 
-        if (_processor == null)
-            return ValueTask.CompletedTask;
-
-        return _processor.DisposeAsync();
+        return DisposeInternal();
     }
 
     public void Dispose()
     {
         GC.SuppressFinalize(this);
-        
-        _processor?.DisposeAsync().NoSync().GetAwaiter().GetResult();
+
+        DisposeInternal().NoSync().GetAwaiter().GetResult();
+    }
+
+    private async ValueTask DisposeInternal()
+    {
+        if (_processor == null)
+            return;
+
+        try
+        {
+            await _processor.StopProcessingAsync().NoSync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error occurred while stopping the processor.");
+        }
+
+        try
+        {
+            await _processor.DisposeAsync().NoSync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error occurred while disposing the processor.");
+        }
+
+        _processor = null;
     }
 }
