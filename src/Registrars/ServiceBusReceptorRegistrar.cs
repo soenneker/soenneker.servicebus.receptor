@@ -12,16 +12,20 @@ public static class ServiceBusReceptorRegistrar
     /// <summary>
     /// Does not add ServiceBusReceptor (since it's abstract), but adds <see cref="IServiceBusQueueUtil"/> (and dependencies)
     /// </summary>
-    public static void AddServiceBusReceptorAsSingleton(this IServiceCollection services)
+    public static IServiceCollection AddServiceBusReceptorAsSingleton(this IServiceCollection services)
     {
         services.AddServiceBusQueueUtilAsSingleton();
+
+        return services;
     }
 
     /// <summary>
     /// Does not add ServiceBusReceptor (since it's abstract), but adds <see cref="IServiceBusQueueUtil"/> (and dependencies)
     /// </summary>
-    public static void AddServiceBusReceptorAsScoped(this IServiceCollection services)
+    public static IServiceCollection AddServiceBusReceptorAsScoped(this IServiceCollection services)
     {
         services.AddServiceBusQueueUtilAsScoped();
+
+        return services;
     }
 }
