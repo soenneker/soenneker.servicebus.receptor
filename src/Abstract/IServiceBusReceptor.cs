@@ -16,5 +16,5 @@ public interface IServiceBusReceptor : IDisposable, IAsyncDisposable
     /// </summary>
     Task Init(CancellationToken cancellationToken = default);
 
-    ValueTask OnMessageReceived(string messageContent, Type? type);
+    ValueTask OnMessageReceived(string messageContent, Type? type, CancellationToken cancellationToken = default);
 }

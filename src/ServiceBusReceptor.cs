@@ -84,7 +84,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
         PreOnMessageReceived(messageStr, runtimeType);
 
-        await OnMessageReceived(messageStr, runtimeType).NoSync();
+        await OnMessageReceived(messageStr, runtimeType, cancellationToken).NoSync();
 
         // complete the message. messages are deleted from the queue. 
         await args.CompleteMessageAsync(args.Message, cancellationToken).NoSync();
@@ -96,7 +96,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
         return Task.CompletedTask;
     }
 
-    public abstract ValueTask OnMessageReceived(string messageContent, Type? type);
+    public abstract ValueTask OnMessageReceived(string messageContent, Type? type, CancellationToken cancellationToken = default);
 
     private void PreOnMessageReceived(string messageContent, Type? type)
     {
