@@ -23,6 +23,8 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     protected IConfiguration Config { get; }
 
     private ServiceBusProcessor? _processor;
+    private Func<ProcessMessageEventArgs, Task>? _messageHandler;
+    private Func<ProcessErrorEventArgs, Task>? _errorHandler;
     private readonly bool _log;
     private readonly IServiceBusClientUtil _serviceBusClientUtil;
     private readonly IServiceBusQueueUtil _serviceBusQueueUtil;
@@ -48,8 +50,11 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
         _processor = client.CreateProcessor(Queue, options);
 
-        _processor.ProcessMessageAsync += args => MessageHandler(args, cancellationToken);
-        _processor.ProcessErrorAsync += ErrorHandler;
+        _messageHandler = args => MessageHandler(args, cancellationToken);
+        _errorHandler = ErrorHandler;
+
+        _processor.ProcessMessageAsync += _messageHandler;
+        _processor.ProcessErrorAsync += _errorHandler;
 
         await _processor.StartProcessingAsync(cancellationToken).NoSync();
     }
@@ -129,6 +134,25 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error occurred while stopping the processor.");
+        }
+
+        try
+        {
+            if (_messageHandler != null)
+            {
+                _processor.ProcessMessageAsync -= _messageHandler;
+                _messageHandler = null;
+            }
+
+            if (_errorHandler != null)
+            {
+                _processor.ProcessErrorAsync -= _errorHandler;
+                _errorHandler = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error occurred while unsubscribing event handlers.");
         }
 
         try
