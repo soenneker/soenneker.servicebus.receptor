@@ -110,15 +110,11 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     public ValueTask DisposeAsync()
     {
-        GC.SuppressFinalize(this);
-
         return DisposeInternal();
     }
 
     public void Dispose()
     {
-        GC.SuppressFinalize(this);
-
         DisposeInternal().NoSync().GetAwaiter().GetResult();
     }
 
