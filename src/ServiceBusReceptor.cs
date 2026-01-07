@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Messaging.ServiceBus;
@@ -13,7 +14,7 @@ using Soenneker.ServiceBus.Receptor.Abstract;
 
 namespace Soenneker.ServiceBus.Receptor;
 
-///<inheritdoc cref="IServiceBusReceptor"/>
+/// <inheritdoc cref="IServiceBusReceptor"/>
 public abstract class ServiceBusReceptor : IServiceBusReceptor
 {
     protected ILogger<ServiceBusReceptor> Logger { get; }
@@ -23,13 +24,28 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     protected IConfiguration Config { get; }
 
     private ServiceBusProcessor? _processor;
+
     private Func<ProcessMessageEventArgs, Task>? _messageHandler;
     private Func<ProcessErrorEventArgs, Task>? _errorHandler;
+
     private readonly bool _log;
     private readonly IServiceBusClientUtil _serviceBusClientUtil;
     private readonly IServiceBusQueueUtil _serviceBusQueueUtil;
 
-    protected ServiceBusReceptor(string queue, ILogger<ServiceBusReceptor> logger, IServiceBusClientUtil serviceBusClientUtil, IServiceBusQueueUtil serviceBusQueueUtil, IConfiguration config)
+    // Avoid closure by storing the init token here.
+    private CancellationToken _initToken;
+
+    // Type.GetType is expensive; cache by the string payload.
+    private static readonly ConcurrentDictionary<string, Type?> _typeCache = new(StringComparer.Ordinal);
+
+    private static readonly ServiceBusProcessorOptions _processorOptions = new()
+    {
+        MaxConcurrentCalls = 1,
+        AutoCompleteMessages = false
+    };
+
+    protected ServiceBusReceptor(string queue, ILogger<ServiceBusReceptor> logger, IServiceBusClientUtil serviceBusClientUtil,
+        IServiceBusQueueUtil serviceBusQueueUtil, IConfiguration config)
     {
         Logger = logger;
         Queue = queue;
@@ -42,60 +58,70 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     public async Task Init(CancellationToken cancellationToken = default)
     {
-        await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue, cancellationToken).NoSync();
+        // Capture once; used by the message handler without closures.
+        _initToken = cancellationToken;
 
-        ServiceBusClient client = await _serviceBusClientUtil.Get(cancellationToken).NoSync();
+        await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue, cancellationToken)
+                                  .NoSync();
 
-        var options = new ServiceBusProcessorOptions {MaxConcurrentCalls = 1, AutoCompleteMessages = false};
+        ServiceBusClient client = await _serviceBusClientUtil.Get(cancellationToken)
+                                                             .NoSync();
 
-        _processor = client.CreateProcessor(Queue, options);
+        _processor = client.CreateProcessor(Queue, _processorOptions);
 
-        _messageHandler = args => MessageHandler(args, cancellationToken);
-        _errorHandler = ErrorHandler;
+        // Method groups (no closure alloc). Store references for unsub.
+        _messageHandler = ProcessMessageAsync;
+        _errorHandler = ProcessErrorAsync;
 
         _processor.ProcessMessageAsync += _messageHandler;
         _processor.ProcessErrorAsync += _errorHandler;
 
-        await _processor.StartProcessingAsync(cancellationToken).NoSync();
+        await _processor.StartProcessingAsync(cancellationToken)
+                        .NoSync();
     }
 
-    /// <summary>
-    /// Must remain Task for handler hook
-    /// </summary>
-    private async Task MessageHandler(ProcessMessageEventArgs args, CancellationToken cancellationToken = default)
+    private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
     {
+        CancellationToken cancellationToken = _initToken;
+
         var messageStr = args.Message.Body.ToString();
 
-        if (_log)
+        if (_log && Logger.IsEnabled(LogLevel.Debug))
             Logger.LogDebug("Received message: {message}", messageStr);
 
         Type? runtimeType = null;
 
-        args.Message.ApplicationProperties.TryGetValue("type", out object? type);
-
-        // ServiceBus doesn't support direct usage of Type :(
-        if (type != null)
+        if (args.Message.ApplicationProperties.TryGetValue("type", out object? typeObj))
         {
-            if (type is string value)
+            if (typeObj is string typeStr)
             {
-                if (value.IsNullOrEmpty())
+                if (typeStr.IsNullOrEmpty())
+                {
                     Logger.LogError("ServiceBus message was not properly formed");
+                }
                 else
-                    runtimeType = Type.GetType(value);
+                {
+                    // Cache the resolution result (including null if it can't be resolved).
+                    runtimeType = _typeCache.GetOrAdd(typeStr, static s => Type.GetType(s, throwOnError: false));
+                }
             }
-            else
-                Logger.LogError("Type was not of type string during {handler}", nameof(MessageHandler));
+            else if (typeObj != null)
+            {
+                Logger.LogError("Type was not of type string during {handler}", nameof(ProcessMessageAsync));
+            }
         }
 
-        PreOnMessageReceived(messageStr, runtimeType);
+        Logger.LogInformation("Received {queue} queue message with content: {content} - type: {type}", Queue, messageStr, runtimeType?.Name);
 
-        await OnMessageReceived(messageStr, runtimeType, cancellationToken).NoSync();
+        await OnMessageReceived(messageStr, runtimeType, cancellationToken)
+            .NoSync();
 
-        // complete the message. messages are deleted from the queue. 
-        await args.CompleteMessageAsync(args.Message, cancellationToken).NoSync();
+        // Complete the message (delete from queue)
+        await args.CompleteMessageAsync(args.Message, cancellationToken)
+                  .NoSync();
     }
 
-    private Task ErrorHandler(ProcessErrorEventArgs args)
+    private Task ProcessErrorAsync(ProcessErrorEventArgs args)
     {
         Logger.LogError(args.Exception, "Error processing message");
         return Task.CompletedTask;
@@ -103,29 +129,28 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     public abstract ValueTask OnMessageReceived(string messageContent, Type? type, CancellationToken cancellationToken = default);
 
-    private void PreOnMessageReceived(string messageContent, Type? type)
-    {
-        Logger.LogInformation("Received {queue} queue message with content: {content} - type: {type}", Queue, messageContent, type?.Name);
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        return DisposeInternal();
-    }
+    public ValueTask DisposeAsync() => DisposeInternal();
 
     public void Dispose()
     {
-        DisposeInternal().NoSync().GetAwaiter().GetResult();
+        // If you can, prefer only IAsyncDisposable and avoid sync-over-async.
+        DisposeInternal()
+            .NoSync()
+            .GetAwaiter()
+            .GetResult();
     }
 
     private async ValueTask DisposeInternal()
     {
-        if (_processor == null)
+        ServiceBusProcessor? processor = _processor;
+
+        if (processor is null)
             return;
 
         try
         {
-            await _processor.StopProcessingAsync().NoSync();
+            await processor.StopProcessingAsync()
+                           .NoSync();
         }
         catch (Exception ex)
         {
@@ -134,15 +159,15 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
         try
         {
-            if (_messageHandler != null)
+            if (_messageHandler is not null)
             {
-                _processor.ProcessMessageAsync -= _messageHandler;
+                processor.ProcessMessageAsync -= _messageHandler;
                 _messageHandler = null;
             }
 
-            if (_errorHandler != null)
+            if (_errorHandler is not null)
             {
-                _processor.ProcessErrorAsync -= _errorHandler;
+                processor.ProcessErrorAsync -= _errorHandler;
                 _errorHandler = null;
             }
         }
@@ -153,7 +178,8 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
         try
         {
-            await _processor.DisposeAsync().NoSync();
+            await processor.DisposeAsync()
+                           .NoSync();
         }
         catch (Exception ex)
         {
