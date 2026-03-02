@@ -35,9 +35,6 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     // Avoid closure by storing the init token here.
     private CancellationToken _initToken;
 
-    // Type.GetType is expensive; cache by the string payload.
-    private static readonly ConcurrentDictionary<string, Type?> _typeCache = new(StringComparer.Ordinal);
-
     private static readonly ServiceBusProcessorOptions _processorOptions = new()
     {
         MaxConcurrentCalls = 1,
@@ -89,7 +86,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
         if (_log && Logger.IsEnabled(LogLevel.Debug))
             Logger.LogDebug("Received message: {message}", messageStr);
 
-        Type? runtimeType = null;
+        string? type = null!;
 
         if (args.Message.ApplicationProperties.TryGetValue("type", out object? typeObj))
         {
@@ -97,12 +94,11 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
             {
                 if (typeStr.IsNullOrEmpty())
                 {
-                    Logger.LogError("ServiceBus message was not properly formed");
+                    Logger.LogError("ServiceBus message was not properly formed (type is missing)");
                 }
                 else
                 {
-                    // Cache the resolution result (including null if it can't be resolved).
-                    runtimeType = _typeCache.GetOrAdd(typeStr, static s => Type.GetType(s, throwOnError: false));
+                    type = typeStr;
                 }
             }
             else if (typeObj != null)
@@ -111,9 +107,9 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
             }
         }
 
-        Logger.LogInformation("Received {queue} queue message with content: {content} - type: {type}", Queue, messageStr, runtimeType?.Name);
+        Logger.LogInformation("Received {queue} queue message with content: {content} - type: {type}", Queue, messageStr, type);
 
-        await OnMessageReceived(messageStr, runtimeType, cancellationToken)
+        await OnMessageReceived(messageStr, type, cancellationToken)
             .NoSync();
 
         // Complete the message (delete from queue)
@@ -127,7 +123,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
         return Task.CompletedTask;
     }
 
-    public abstract ValueTask OnMessageReceived(string messageContent, Type? type, CancellationToken cancellationToken = default);
+    public abstract ValueTask OnMessageReceived(string messageContent, string type, CancellationToken cancellationToken = default);
 
     public ValueTask DisposeAsync() => DisposeInternal();
 
