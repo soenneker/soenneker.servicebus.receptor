@@ -1,16 +1,15 @@
-using Soenneker.Tests.FixturedUnit;
-using Xunit;
+using Soenneker.Tests.HostedUnit;
 
 namespace Soenneker.ServiceBus.Receptor.Tests;
 
-[Collection("Collection")]
-public class ServiceBusReceptorTests : FixturedUnitTest
+[ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
+public class ServiceBusReceptorTests : HostedUnitTest
 {
-    public ServiceBusReceptorTests(Fixture fixture, ITestOutputHelper output) : base(fixture, output)
+    public ServiceBusReceptorTests(Host host) : base(host)
     {
     }
 
-    [Fact]
+    [Test]
     public void Default()
     {
 
