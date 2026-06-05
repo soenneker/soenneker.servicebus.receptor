@@ -124,8 +124,15 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     public abstract ValueTask OnMessageReceived(string messageContent, string type, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Asynchronously releases resources used by the current instance.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous operation.</returns>
     public ValueTask DisposeAsync() => DisposeInternal();
 
+    /// <summary>
+    /// Releases resources used by the current instance.
+    /// </summary>
     public void Dispose()
     {
         // If you can, prefer only IAsyncDisposable and avoid sync-over-async.
