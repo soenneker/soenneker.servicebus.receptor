@@ -39,6 +39,6 @@
         <None Include="..\..\README.md" Pack="true" PackagePath="\" />
         <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
         <None Include="..\..\icon.png" Pack="true" PackagePath="\" />
-        <PackageReference Include="Soenneker.ServiceBus.Queue" Version="4.0.2314" />
+        <PackageReference Include="Soenneker.ServiceBus.Queue" Version="4.0.2315" />
     </ItemGroup>
 </Project>
