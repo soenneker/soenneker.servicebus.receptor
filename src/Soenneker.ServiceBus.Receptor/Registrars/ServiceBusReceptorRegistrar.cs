@@ -12,6 +12,8 @@ public static class ServiceBusReceptorRegistrar
     /// <summary>
     /// Does not add ServiceBusReceptor (since it's abstract), but adds <see cref="IServiceBusQueueUtil"/> (and dependencies)
     /// </summary>
+    /// <param name="services">Service collection that receives the registration.</param>
+    /// <returns>The same service collection, so additional registrations can be chained.</returns>
     public static IServiceCollection AddServiceBusReceptorAsSingleton(this IServiceCollection services)
     {
         services.AddServiceBusQueueUtilAsSingleton();
@@ -22,6 +24,8 @@ public static class ServiceBusReceptorRegistrar
     /// <summary>
     /// Does not add ServiceBusReceptor (since it's abstract), but adds <see cref="IServiceBusQueueUtil"/> (and dependencies)
     /// </summary>
+    /// <param name="services">Service collection that receives the registration.</param>
+    /// <returns>The same service collection, so additional registrations can be chained.</returns>
     public static IServiceCollection AddServiceBusReceptorAsScoped(this IServiceCollection services)
     {
         services.AddServiceBusQueueUtilAsScoped();

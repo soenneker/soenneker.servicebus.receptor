@@ -14,6 +14,8 @@ public interface IServiceBusReceptor : IDisposable, IAsyncDisposable
     /// <summary>
     /// Must remain task
     /// </summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the init operation is complete.</returns>
     Task Init(CancellationToken cancellationToken = default);
 
     /// <summary>
