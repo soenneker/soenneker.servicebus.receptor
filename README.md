@@ -5,42 +5,83 @@
 
 # Soenneker.ServiceBus.Receptor
 
-An abstract Service Bus class meant to be derived by specific bus receptors. Be sure to warm implementations of these Singleton IoC.
+An abstract Azure Service Bus queue processor that provisions its queue, dispatches body and type data to a derived receptor, and completes successfully handled messages.
 
-## Install
+## Installation
 
 ```bash
 dotnet add package Soenneker.ServiceBus.Receptor
 ```
 
-## Quick start
+## Implement a receptor
+
+Derive from `ServiceBusReceptor`, choose the queue in the base constructor, and implement the application handler:
+
+```csharp
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Soenneker.ServiceBus.Client.Abstract;
+using Soenneker.ServiceBus.Queue.Abstract;
+using Soenneker.ServiceBus.Receptor;
+
+public sealed class OrderReceptor : ServiceBusReceptor
+{
+    public OrderReceptor(
+        ILogger<ServiceBusReceptor> logger,
+        IServiceBusClientUtil clientUtil,
+        IServiceBusQueueUtil queueUtil,
+        IConfiguration configuration)
+        : base("orders", logger, clientUtil, queueUtil, configuration)
+    {
+    }
+
+    public override async ValueTask OnMessageReceived(
+        string messageContent,
+        string type,
+        CancellationToken cancellationToken = default)
+    {
+        switch (type)
+        {
+            case "order.created.v1":
+                await HandleOrderCreated(messageContent, cancellationToken);
+                break;
+            default:
+                throw new NotSupportedException($"Unsupported message type: {type}");
+        }
+    }
+}
+```
+
+The body is supplied as a string. The type comes from the Service Bus message's `ApplicationProperties["type"]` value and is expected to be a non-empty string. Producers using `Soenneker.ServiceBus.Message` receive this property automatically.
+
+## Register and start
+
+The base registrar adds queue, administration, and client dependencies; it cannot register your abstract-derived type for you:
 
 ```csharp
 using Soenneker.ServiceBus.Receptor.Registrars;
-using Microsoft.Extensions.DependencyInjection;
 
-var services = new ServiceCollection();
-var result = services.AddServiceBusReceptorAsSingleton();
+services.AddServiceBusReceptorAsSingleton();
+services.AddSingleton<OrderReceptor>();
 ```
 
-Does not add ServiceBusReceptor (since it's abstract), but adds `IServiceBusQueueUtil` (and dependencies).
+Resolve the receptor during application startup and initialize it once:
 
-## What you get
+```csharp
+OrderReceptor receptor = services.GetRequiredService<OrderReceptor>();
+await receptor.Init(cancellationToken);
+```
 
-- `IServiceBusReceptor` — An abstract Service Bus class meant to be derived by specific bus receptors. Be sure to warm implementations of these Singleton IoC.
-- `ServiceBusReceptorRegistrar` — An abstract Service Bus class meant to be derived by specific bus receptors. A 'Receptor' is a specific class for a particular message type.
+Simply registering the receptor does not start it. `Init` creates the queue with Azure defaults when absent, creates a processor, attaches handlers, and starts processing. The connection-string credential therefore needs both queue-management and receive permissions.
 
-## API at a glance
+Registering the base dependencies as scoped is also supported with `AddServiceBusReceptorAsScoped()`. The scoped queue utility retains singleton administration and data-plane clients.
 
-| API | What it does | Result / important behavior |
-| --- | --- | --- |
-| `IServiceBusReceptor.Init(cancellationToken)` | Must remain task. | A task that completes when the init operation is complete. |
-| `IServiceBusReceptor.OnMessageReceived(messageContent, type, cancellationToken)` | Handles an incoming message with the specified content and type. | A ValueTask that represents the asynchronous handling of the message. |
-| `ServiceBusReceptorRegistrar.AddServiceBusReceptorAsSingleton(services)` | Does not add ServiceBusReceptor (since it's abstract), but adds `IServiceBusQueueUtil` (and dependencies). | The same service collection, so additional registrations can be chained. |
-| `ServiceBusReceptorRegistrar.AddServiceBusReceptorAsScoped(services)` | Does not add ServiceBusReceptor (since it's abstract), but adds `IServiceBusQueueUtil` (and dependencies). | The same service collection, so additional registrations can be chained. |
+## Processing and settlement
 
-## Practical notes
+The processor uses peek-lock mode, disables automatic completion, and handles one message at a time. After `OnMessageReceived` completes successfully, the receptor explicitly completes the message.
 
-- Cancellation stops pending work; it does not undo work that has already completed.
-- Calls that return a cached or singleton value reuse the same instance until the owning service is disposed.
-- Dispose instances you own when their scope ends so held resources can be released.
+If the handler or completion throws, the exception flows back to the Azure processor and the message is not completed by this class. Configure queue retry and dead-letter behavior for your workload, and make handlers idempotent because a message may be delivered again.
+
+`Azure:ServiceBus:Log=true` enables full message-body logging at debug level. Bodies may contain credentials or personal data, so leave this disabled unless the log destination and retention policy are suitable. Information logs identify the queue and message type without recording the body.
+
+Dispose the receptor during application shutdown. Disposal stops processing, removes its event handlers, and disposes the processor; it does not dispose the shared top-level Service Bus client.

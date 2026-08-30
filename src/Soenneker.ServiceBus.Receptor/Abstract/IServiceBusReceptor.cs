@@ -5,14 +5,12 @@ using System.Threading.Tasks;
 namespace Soenneker.ServiceBus.Receptor.Abstract;
 
 /// <summary>
-/// An abstract Service Bus class meant to be derived by specific bus receptors. <para/>
-/// Be sure to warm implementations of these <para/>
-/// Singleton IoC
+/// Defines an Azure Service Bus receptor that must be initialized before it can dispatch messages.
 /// </summary>
 public interface IServiceBusReceptor : IDisposable, IAsyncDisposable
 {
     /// <summary>
-    /// Must remain task
+    /// Provisions the configured queue when necessary, creates the processor, and starts message processing.
     /// </summary>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     /// <returns>A task that completes when the init operation is complete.</returns>
@@ -24,6 +22,6 @@ public interface IServiceBusReceptor : IDisposable, IAsyncDisposable
     /// <param name="messageContent">The content of the received message. Cannot be null.</param>
     /// <param name="type">The type or category of the message. Cannot be null or empty.</param>
     /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
-    /// <returns>A ValueTask that represents the asynchronous handling of the message.</returns>
+    /// <returns>A task that completes when application handling has finished. Successful completion allows the receptor to complete the broker message.</returns>
     ValueTask OnMessageReceived(string messageContent, string type, CancellationToken cancellationToken = default);
 }

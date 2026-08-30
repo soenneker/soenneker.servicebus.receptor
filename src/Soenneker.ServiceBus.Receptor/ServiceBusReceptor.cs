@@ -31,9 +31,6 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     private readonly IServiceBusClientUtil _serviceBusClientUtil;
     private readonly IServiceBusQueueUtil _serviceBusQueueUtil;
 
-    // Avoid closure by storing the init token here.
-    private CancellationToken _initToken;
-
     private static readonly ServiceBusProcessorOptions _processorOptions = new()
     {
         MaxConcurrentCalls = 1,
@@ -54,9 +51,6 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     public async Task Init(CancellationToken cancellationToken = default)
     {
-        // Capture once; used by the message handler without closures.
-        _initToken = cancellationToken;
-
         await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue, cancellationToken)
                                   .NoSync();
 
@@ -78,7 +72,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
     {
-        CancellationToken cancellationToken = _initToken;
+        CancellationToken cancellationToken = args.CancellationToken;
 
         var messageStr = args.Message.Body.ToString();
 
@@ -106,7 +100,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
             }
         }
 
-        Logger.LogInformation("Received {queue} queue message with content: {content} - type: {type}", Queue, messageStr, type);
+        Logger.LogInformation("Received {queue} queue message - type: {type}", Queue, type);
 
         await OnMessageReceived(messageStr, type, cancellationToken)
             .NoSync();
