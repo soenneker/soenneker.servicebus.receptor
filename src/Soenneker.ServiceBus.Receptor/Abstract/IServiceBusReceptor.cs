@@ -10,8 +10,13 @@ namespace Soenneker.ServiceBus.Receptor.Abstract;
 public interface IServiceBusReceptor : IDisposable, IAsyncDisposable
 {
     /// <summary>
-    /// Provisions the configured queue when necessary, creates the processor, and starts message processing.
+    /// Provisions the configured queue when necessary, creates the processor, and starts message processing. Repeated calls share the running processor.
     /// </summary>
+    /// <remarks>
+    /// Reads <c>Azure:ServiceBus:MaxConcurrentCalls</c> (default 1) and <c>Azure:ServiceBus:PrefetchCount</c> (default 0) at construction.
+    /// Increasing concurrency permits overlapping handlers; prefetched messages consume memory and their broker locks continue to age.
+    /// Initialization is serialized with disposal. Failed startup is cleaned up and can be retried; initialization after disposal throws.
+    /// </remarks>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     /// <returns>A task that completes when the init operation is complete.</returns>
     Task Init(CancellationToken cancellationToken = default);

@@ -13,7 +13,6 @@ using Soenneker.ServiceBus.Receptor.Abstract;
 
 namespace Soenneker.ServiceBus.Receptor;
 
-/// <inheritdoc cref="IServiceBusReceptor"/>
 public abstract class ServiceBusReceptor : IServiceBusReceptor
 {
     protected ILogger<ServiceBusReceptor> Logger { get; }
@@ -22,7 +21,12 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     protected IConfiguration Config { get; }
 
+    private static readonly Action<ILogger, string, string?, Exception?> _received =
+        LoggerMessage.Define<string, string?>(LogLevel.Information, new EventId(1, "Received"), "Received {queue} queue message - type: {type}");
+
     private ServiceBusProcessor? _processor;
+    private readonly SemaphoreSlim _lifecycle = new(1, 1);
+    private bool _disposed;
 
     private Func<ProcessMessageEventArgs, Task>? _messageHandler;
     private Func<ProcessErrorEventArgs, Task>? _errorHandler;
@@ -31,11 +35,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     private readonly IServiceBusClientUtil _serviceBusClientUtil;
     private readonly IServiceBusQueueUtil _serviceBusQueueUtil;
 
-    private static readonly ServiceBusProcessorOptions _processorOptions = new()
-    {
-        MaxConcurrentCalls = 1,
-        AutoCompleteMessages = false
-    };
+    private readonly ServiceBusProcessorOptions _processorOptions;
 
     protected ServiceBusReceptor(string queue, ILogger<ServiceBusReceptor> logger, IServiceBusClientUtil serviceBusClientUtil,
         IServiceBusQueueUtil serviceBusQueueUtil, IConfiguration config)
@@ -47,27 +47,46 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
         Config = config;
 
         _log = config.GetValue<bool>("Azure:ServiceBus:Log");
+        _processorOptions = new ServiceBusProcessorOptions
+        {
+            MaxConcurrentCalls = config.GetValue<int?>("Azure:ServiceBus:MaxConcurrentCalls") ?? 1,
+            PrefetchCount = config.GetValue<int?>("Azure:ServiceBus:PrefetchCount") ?? 0,
+            AutoCompleteMessages = false
+        };
     }
 
     public async Task Init(CancellationToken cancellationToken = default)
     {
-        await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue, cancellationToken)
-                                  .NoSync();
+        await _lifecycle.WaitAsync(cancellationToken).NoSync();
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_processor is not null)
+                return;
 
-        ServiceBusClient client = await _serviceBusClientUtil.Get(cancellationToken)
-                                                             .NoSync();
-
-        _processor = client.CreateProcessor(Queue, _processorOptions);
-
-        // Method groups (no closure alloc). Store references for unsub.
-        _messageHandler = ProcessMessageAsync;
-        _errorHandler = ProcessErrorAsync;
-
-        _processor.ProcessMessageAsync += _messageHandler;
-        _processor.ProcessErrorAsync += _errorHandler;
-
-        await _processor.StartProcessingAsync(cancellationToken)
-                        .NoSync();
+            await _serviceBusQueueUtil.CreateQueueIfDoesNotExist(Queue, cancellationToken).NoSync();
+            ServiceBusClient client = await _serviceBusClientUtil.Get(cancellationToken).NoSync();
+            ServiceBusProcessor processor = client.CreateProcessor(Queue, _processorOptions);
+            _messageHandler ??= ProcessMessageAsync;
+            _errorHandler ??= ProcessErrorAsync;
+            try
+            {
+                processor.ProcessMessageAsync += _messageHandler;
+                processor.ProcessErrorAsync += _errorHandler;
+                await processor.StartProcessingAsync(cancellationToken).NoSync();
+                _processor = processor;
+            }
+            catch
+            {
+                // A failed startup must not retain a processor or prevent a later retry.
+                await DisposeProcessor(processor).NoSync();
+                throw;
+            }
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
     }
 
     private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
@@ -100,7 +119,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
             }
         }
 
-        Logger.LogInformation("Received {queue} queue message - type: {type}", Queue, type);
+        _received(Logger, Queue, type, null);
 
         await OnMessageReceived(messageStr, type, cancellationToken)
             .NoSync();
@@ -117,16 +136,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
     }
 
     public abstract ValueTask OnMessageReceived(string messageContent, string type, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Asynchronously releases resources used by the current instance.
-    /// </summary>
-    /// <returns>A task that represents the asynchronous operation.</returns>
     public ValueTask DisposeAsync() => DisposeInternal();
-
-    /// <summary>
-    /// Releases resources used by the current instance.
-    /// </summary>
     public void Dispose()
     {
         // If you can, prefer only IAsyncDisposable and avoid sync-over-async.
@@ -138,11 +148,25 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
 
     private async ValueTask DisposeInternal()
     {
-        ServiceBusProcessor? processor = _processor;
+        await _lifecycle.WaitAsync().NoSync();
+        try
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            ServiceBusProcessor? processor = _processor;
+            _processor = null;
+            if (processor is not null)
+                await DisposeProcessor(processor).NoSync();
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
 
-        if (processor is null)
-            return;
-
+    private async ValueTask DisposeProcessor(ServiceBusProcessor processor)
+    {
         try
         {
             await processor.StopProcessingAsync()
@@ -158,13 +182,11 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
             if (_messageHandler is not null)
             {
                 processor.ProcessMessageAsync -= _messageHandler;
-                _messageHandler = null;
             }
 
             if (_errorHandler is not null)
             {
                 processor.ProcessErrorAsync -= _errorHandler;
-                _errorHandler = null;
             }
         }
         catch (Exception ex)
@@ -182,6 +204,5 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
             Logger.LogError(ex, "Error occurred while disposing the processor.");
         }
 
-        _processor = null;
     }
 }
