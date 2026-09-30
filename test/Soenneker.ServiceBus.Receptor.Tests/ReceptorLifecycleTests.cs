@@ -16,7 +16,7 @@ public class ReceptorLifecycleTests
         if (!condition) throw new InvalidOperationException(message);
     }
     [Test]
-    public async Task ProcessorLifecycleIsIdempotentAndFailedStartupIsDisposed()
+    public async ValueTask ProcessorLifecycleIsIdempotentAndFailedStartupIsDisposed()
     {
         var client = new FakeClient();
         var receptor = new TestReceptor(new ClientUtil(client));
