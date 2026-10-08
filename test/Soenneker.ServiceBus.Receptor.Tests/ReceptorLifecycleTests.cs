@@ -16,23 +16,23 @@ public class ReceptorLifecycleTests
         if (!condition) throw new InvalidOperationException(message);
     }
     [Test]
-    public async ValueTask ProcessorLifecycleIsIdempotentAndFailedStartupIsDisposed()
+    public async ValueTask ProcessorLifecycleIsIdempotentAndFailedStartupIsDisposed(CancellationToken cancellationToken)
     {
         var client = new FakeClient();
         var receptor = new TestReceptor(new ClientUtil(client));
-        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => receptor.Init()));
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => receptor.Init(cancellationToken: cancellationToken)));
         Check(client.Processors.Count == 1 && client.Processors[0].Starts == 1, "Init leaked duplicate processors");
         await Task.WhenAll(receptor.DisposeAsync().AsTask(), receptor.DisposeAsync().AsTask());
         Check(client.Processors[0].Disposals == 1, "Processor was not disposed exactly once");
-        try { await receptor.Init(); throw new Exception("Reinitialized disposed receptor"); }
+        try { await receptor.Init(cancellationToken: cancellationToken); throw new Exception("Reinitialized disposed receptor"); }
         catch (ObjectDisposedException) { }
 
         var failing = new FakeClient { FailFirst = true };
         await using var retry = new TestReceptor(new ClientUtil(failing));
-        try { await retry.Init(); throw new Exception("Expected startup failure"); }
+        try { await retry.Init(cancellationToken: cancellationToken); throw new Exception("Expected startup failure"); }
         catch (InvalidOperationException) { }
         Check(failing.Processors[0].Disposals == 1, "Failed startup leaked processor");
-        await retry.Init();
+        await retry.Init(cancellationToken: cancellationToken);
         Check(failing.Processors.Count == 2, "Failed initialization could not retry");
     }
     private sealed class TestReceptor(ClientUtil client) : Soenneker.ServiceBus.Receptor.ServiceBusReceptor("audit",
