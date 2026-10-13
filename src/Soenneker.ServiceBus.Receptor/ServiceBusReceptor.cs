@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Soenneker.Extensions.String;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.ServiceBus.Client.Abstract;
@@ -104,7 +103,7 @@ public abstract class ServiceBusReceptor : IServiceBusReceptor
         {
             if (typeObj is string typeStr)
             {
-                if (typeStr.IsNullOrEmpty())
+                if (string.IsNullOrEmpty(typeStr))
                 {
                     Logger.LogError("ServiceBus message was not properly formed (type is missing)");
                 }
